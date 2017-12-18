@@ -56,6 +56,7 @@ type ScoreResult struct {
 // Results holds a slice of ScoreResult records
 // as well as some overall result data
 type Results struct {
+	MaxDepth int
 	BestMove string
 	results  map[scoreKey]ScoreResult
 	Results  []ScoreResult
@@ -200,6 +201,61 @@ func (eng *Engine) GoDepth(depth int, resultOpts ...uint) (*Results, error) {
 	return &res, nil
 }
 
+// GoNodes takes a nodes and an optional uint flag that configures filters
+// for the results being returned.
+func (eng *Engine) GoNodes(nodes int, resultOpts ...uint) (*Results, error) {
+	res := Results{}
+	resultOpt := uint(0)
+	if len(resultOpts) == 1 {
+		resultOpt = resultOpts[0]
+	}
+	_, err := eng.stdin.WriteString(fmt.Sprintf("go nodes %d\n", nodes))
+	if err != nil {
+		return nil, err
+	}
+	err = eng.stdin.Flush()
+	if err != nil {
+		return nil, err
+	}
+	for {
+		line, err := eng.stdout.ReadString('\n')
+		if err != nil {
+			return nil, err
+		}
+		line = strings.Trim(line, "\n")
+		if strings.HasPrefix(line, "bestmove") {
+			dummy := ""
+			_, err := fmt.Sscanf(line, "%s %s", &dummy, &res.BestMove)
+			if err != nil {
+				return nil, err
+			}
+			break
+		}
+
+		err = res.addLineToResults(line)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	for _, v := range res.results {
+		if resultOpt & HighestDepthOnly != 0 && v.Depth != res.MaxDepth {
+			continue
+		}
+		if resultOpt&IncludeUpperbounds == 0 && v.Upperbound {
+			continue
+		}
+		if resultOpt&IncludeLowerbounds == 0 && v.Lowerbound {
+			continue
+		}
+		res.Results = append(res.Results, v)
+	}
+	sort.Sort(byDepth(res.Results))
+	return &res, nil
+}
+
+
+
 type byDepth []ScoreResult
 
 func (a byDepth) Len() int      { return len(a) }
@@ -301,6 +357,7 @@ func (res *Results) addLineToResults(line string) error {
 		}
 	}
 	if r.Depth > 0 {
+		res.MaxDepth = r.Depth
 		if res.results == nil {
 			res.results = make(map[scoreKey]ScoreResult)
 		}
