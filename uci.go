@@ -30,12 +30,12 @@ type Options struct {
 
 // scoreKey helps us save the latest unique result where unique is
 // defined as having unique values for each of the fields
-type scoreKey struct {
+/*type scoreKey struct {
 	Depth      int
 	MultiPV    int
 	Upperbound bool
 	Lowerbound bool
-}
+}*/
 
 // ScoreResult holds the score result records returned
 // by the engine
@@ -58,7 +58,7 @@ type ScoreResult struct {
 type Results struct {
 	MaxDepth int
 	BestMove string
-	results  map[scoreKey]ScoreResult
+	results  map[int]ScoreResult
 	Results  []ScoreResult
 }
 
@@ -205,10 +205,7 @@ func (eng *Engine) GoDepth(depth int, resultOpts ...uint) (*Results, error) {
 // for the results being returned.
 func (eng *Engine) GoNodes(nodes int, resultOpts ...uint) (*Results, error) {
 	res := Results{}
-	resultOpt := uint(0)
-	if len(resultOpts) == 1 {
-		resultOpt = resultOpts[0]
-	}
+
 	_, err := eng.stdin.WriteString(fmt.Sprintf("go nodes %d\n", nodes))
 	if err != nil {
 		return nil, err
@@ -239,18 +236,15 @@ func (eng *Engine) GoNodes(nodes int, resultOpts ...uint) (*Results, error) {
 	}
 
 	for _, v := range res.results {
-		if resultOpt & HighestDepthOnly != 0 && v.Depth != res.MaxDepth {
-			continue
-		}
-		if resultOpt&IncludeUpperbounds == 0 && v.Upperbound {
-			continue
-		}
-		if resultOpt&IncludeLowerbounds == 0 && v.Lowerbound {
-			continue
-		}
 		res.Results = append(res.Results, v)
 	}
-	sort.Sort(byDepth(res.Results))
+	sort.Slice(res.Results, func(i, j int) bool {
+		if res.Results[i].Score == res.Results[j].Score {
+			return res.Results[i].MultiPV >= res.Results[j].MultiPV
+		} else {
+			return res.Results[i].Score > res.Results[j].Score
+		}
+	})
 	return &res, nil
 }
 
@@ -359,14 +353,9 @@ func (res *Results) addLineToResults(line string) error {
 	if r.Depth > 0 {
 		res.MaxDepth = r.Depth
 		if res.results == nil {
-			res.results = make(map[scoreKey]ScoreResult)
+			res.results = make(map[int]ScoreResult)
 		}
-		res.results[scoreKey{
-			Depth:      r.Depth,
-			MultiPV:    r.MultiPV,
-			Upperbound: r.Upperbound,
-			Lowerbound: r.Lowerbound,
-		}] = r
+		res.results[r.MultiPV] = r
 	}
 	return nil
 }
